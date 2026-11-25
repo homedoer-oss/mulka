@@ -38,7 +38,7 @@
 
 ## Відкриті питання
 
-- Чи знаходить збірка upstream VS **Build Tools** (а не повну VS): у вихідниках `rebuild.cmd` і `cmake.py` виклику `vswhere` немає, він глибше. Перевіримо на першій збірці.
+- ~~Чи знаходить збірка upstream VS Build Tools~~ — ні: `aemu/process/environment.py` викликає `vswhere` без `-products *` і вимагає workload `NativeDesktop`, якого в Build Tools немає. Виправлено патчем `patches/external-qemu/0001-accept-vs-build-tools.patch` (приймає також `VCTools`); `build.ps1` накладає патчі з `patches\` перед збіркою.
 - Чи потрібен Windows ADK (`dismapi.h` для `emulator-check`) у збірці за замовчуванням.
 - Тривалість збірки — заміряти і записати сюди.
 

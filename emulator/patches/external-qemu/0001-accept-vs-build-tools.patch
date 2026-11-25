@@ -1,0 +1,19 @@
+diff --git a/android/build/python/aemu/process/environment.py b/android/build/python/aemu/process/environment.py
+index 0952be43..b31ee95d 100644
+--- a/android/build/python/aemu/process/environment.py
++++ b/android/build/python/aemu/process/environment.py
+@@ -99,8 +99,14 @@ class WindowsEnvironment(BaseEnvironment):
+                 str(
+                     prgrfiles / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+                 ),
++                # Mulka: also accept VS Build Tools, where the C++ toolchain
++                # comes with the VCTools workload instead of NativeDesktop.
++                "-products",
++                "*",
+                 "-requires",
+                 "Microsoft.VisualStudio.Workload.NativeDesktop",
++                "Microsoft.VisualStudio.Workload.VCTools",
++                "-requiresAny",
+                 "-sort",
+                 "-format",
+                 "json",

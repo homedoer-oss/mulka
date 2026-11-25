@@ -18,6 +18,24 @@ $ErrorActionPreference = 'Stop'
 $qemu = Join-Path $Root 'external\qemu'
 if (-not (Test-Path (Join-Path $qemu 'android\rebuild.cmd'))) { throw "No source at $qemu - run fetch.ps1 first." }
 
+# Mulka patches on top of the pinned upstream tree: patches\<dir>\*.patch, applied in name order.
+# Idempotent: a patch that already applies in reverse is treated as applied.
+$patchTargets = @{ 'external-qemu' = 'external\qemu' }
+foreach ($dir in $patchTargets.Keys) {
+    $projectPath = Join-Path $Root $patchTargets[$dir]
+    $patches = Get-ChildItem (Join-Path $PSScriptRoot "patches\$dir") -Filter '*.patch' -ErrorAction SilentlyContinue | Sort-Object Name
+    foreach ($p in $patches) {
+        & git -C $projectPath apply --reverse --check $p.FullName 2>$null
+        if ($LASTEXITCODE -eq 0) { Write-Host "patch already applied: $dir\$($p.Name)"; continue }
+        & git -C $projectPath apply $p.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Failed to apply $($p.FullName) to $projectPath" }
+        Write-Host "patch applied: $dir\$($p.Name)"
+    }
+}
+
+# vcvars64.bat looks for vswhere.exe on PATH; without it it prints a harmless error.
+$env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
+
 $outDir = Join-Path $PSScriptRoot 'out'
 New-Item -ItemType Directory -Force $outDir | Out-Null
 $log = Join-Path $outDir ("build-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
