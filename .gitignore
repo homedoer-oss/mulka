@@ -1,0 +1,30 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# Rust
+gateway/target/
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Емулятор і образи: вихідники upstream, артефакти збірки, диски
+emulator/src/
+emulator/out/
+images/out/
+*.img
+*.qcow2
+*.iso
+
+# Секрети
+*.pfx
+*.snk
+.env
+.claude/settings.local.json

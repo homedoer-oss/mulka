@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mulka.Cli/Mulka.Cli.csproj" />
+    <Project Path="src/Mulka.Contracts/Mulka.Contracts.csproj" />
+    <Project Path="src/Mulka.Daemon/Mulka.Daemon.csproj" />
+    <Project Path="src/Mulka.Manager/Mulka.Manager.csproj" />
+  </Folder>
+</Solution>
