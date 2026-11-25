@@ -1,0 +1,135 @@
+diff --git a/src/ip_icmp.c b/src/ip_icmp.c
+index 8f3404f..1898ad6 100644
+--- a/src/ip_icmp.c
++++ b/src/ip_icmp.c
+@@ -218,7 +218,9 @@ void icmp_input(struct mbuf *m, int hlen)
+         if (ip->ip_dst.s_addr == slirp->vhost_addr.s_addr ||
+             ip->ip_dst.s_addr == slirp->vnameserver_addr.s_addr) {
+             icmp_reflect(m);
+-        } else if (slirp->restricted) {
++        } else if (slirp->restricted || slirp->http_proxy_on) {
++            /* Mulka: no ICMP echo past the proxy; it would leave from the
++             * host's own address. */
+             goto freeit;
+         } else {
+             struct socket *so;
+diff --git a/src/socket.c b/src/socket.c
+index 42edf0d..1d07402 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -756,6 +756,13 @@ int sosendto(struct socket *so, struct mbuf *m)
+         return -1;
+     }
+ 
++    if (!slirp_proxy_egress_allowed(so, &addr)) {
++        /* Mulka: no direct UDP past the proxy; the caller answers with
++         * ICMP unreachable, so QUIC falls back to TCP right away. */
++        errno = EHOSTUNREACH;
++        return -1;
++    }
++
+     if (so->so_type == IPPROTO_UDP && udp_reattach(so, addr.ss_family) < 0) {
+         return -1;
+     }
+@@ -1120,6 +1127,66 @@ static bool sotranslate_out6(Slirp *s, struct socket *so, struct sockaddr_in6 *s
+ }
+ 
+ 
++/*
++ * Mulka: fail-closed egress while an HTTP proxy is configured
++ * (slirp->http_proxy_on). TCP is expected to go through the proxy. Any socket
++ * slirp opens directly (UDP, the ICMP echo socket, TCP the proxy declined) may
++ * then only target host loopback (10.0.2.2, a loopback DNS server) or, on
++ * port 53, the DNS server a guest 10.0.2.3+ address was translated to.
++ * |host_addr| is the address after sotranslate_out().
++ */
++static bool sockaddr_is_loopback(const struct sockaddr_storage *addr)
++{
++    switch (addr->ss_family) {
++    case AF_INET:
++        return (ntohl(((const struct sockaddr_in *)addr)->sin_addr.s_addr) >> 24)
++               == 127;
++    case AF_INET6: {
++        const uint8_t *b = ((const struct sockaddr_in6 *)addr)->sin6_addr.s6_addr;
++        static const uint8_t zeros[10];
++        if (memcmp(b, zeros, 10) != 0) {
++            return false;
++        }
++        /* ::1 or ::ffff:127.x.y.z */
++        return (b[10] == 0 && b[11] == 0 && b[12] == 0 && b[13] == 0 &&
++                b[14] == 0 && b[15] == 1) ||
++               (b[10] == 0xff && b[11] == 0xff && b[12] == 127);
++    }
++    default:
++        return false;
++    }
++}
++
++static bool so_is_guest_dns(const struct socket *so)
++{
++    Slirp *slirp = so->slirp;
++
++    switch (so->so_ffamily) {
++    case AF_INET:
++        return so->so_fport == htons(53) &&
++               (so->so_faddr.s_addr & slirp->vnetwork_mask.s_addr) ==
++                   slirp->vnetwork_addr.s_addr &&
++               so->so_faddr.s_addr != slirp->vhost_addr.s_addr;
++    case AF_INET6:
++        return so->so_fport6 == htons(53) &&
++               in6_equal_net(&so->so_faddr6, &slirp->vprefix_addr6,
++                             slirp->vprefix_len) &&
++               !in6_equal_mach(&so->so_faddr6, &slirp->vhost_addr6,
++                               slirp->vprefix_len);
++    default:
++        return false;
++    }
++}
++
++bool slirp_proxy_egress_allowed(const struct socket *so,
++                                const struct sockaddr_storage *host_addr)
++{
++    if (!so->slirp->http_proxy_on || sockaddr_is_loopback(host_addr)) {
++        return true;
++    }
++    return so_is_guest_dns(so);
++}
++
+ /*
+  * Translate addr in host addr when it is a virtual address
+  */
+diff --git a/src/socket.h b/src/socket.h
+index 0c22992..833c701 100644
+--- a/src/socket.h
++++ b/src/socket.h
+@@ -204,6 +204,11 @@ size_t sopreprbuf(struct socket *so, struct iovec *iov, int *np);
+ int soreadbuf(struct socket *so, const char *buf, int size);
+ 
+ int sotranslate_out(struct socket *, struct sockaddr_storage *);
++
++/* Mulka: see socket.c. False when slirp->http_proxy_on and |host_addr| is
++ * neither host loopback nor the guest's DNS server on port 53. */
++bool slirp_proxy_egress_allowed(const struct socket *so,
++                                const struct sockaddr_storage *host_addr);
+ void sotranslate_in(struct socket *, struct sockaddr_storage *);
+ void sotranslate_accept(struct socket *);
+ void sodrop(struct socket *, int num);
+diff --git a/src/tcp_subr.c b/src/tcp_subr.c
+index 881242c..6cb7c5b 100644
+--- a/src/tcp_subr.c
++++ b/src/tcp_subr.c
+@@ -456,6 +456,14 @@ int tcp_fconnect(struct socket *so, unsigned short af)
+         return 0;
+     }
+ 
++    /* Mulka: the proxy declined this connection; never fall back to a direct
++     * connection from the host's address. tcp_input() answers with RST. */
++    if (!slirp_proxy_egress_allowed(so, &addr)) {
++        so->s = -1;
++        errno = ECONNREFUSED;
++        return -1;
++    }
++
+     ret = so->s = socket_fallback(&addr, SOCK_STREAM);
+     if (ret >= 0) {
+         ret = slirp_bind_outbound(so, addr.ss_family);

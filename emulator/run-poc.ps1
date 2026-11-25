@@ -24,6 +24,9 @@ param(
     # Phase 0 checks: -HttpProxy http://127.0.0.1:18080 -DnsServer 127.0.1.1 (ADR-0004, instance 0)
     [string]$HttpProxy,
     [string]$DnsServer,
+    # Disable virtio-wifi: Wi-Fi traffic is handled by the prebuilt netsimd.exe (its own libslirp, not ours),
+    # so with it the guest's UDP/ICMP bypass the slirp patch. Without it everything goes over eth0.
+    [switch]$NoWifi,
     [switch]$NoWindow,
     [int]$BootTimeoutSec = 600,
     [string[]]$Extra = @()
@@ -79,6 +82,7 @@ $log = Join-Path $PocRoot "$Name-$(Get-Date -Format yyyyMMdd-HHmmss).log"
 $emuArgs = @('-avd', $Name, '-port', $Port, '-accel', 'on', '-no-snapshot', '-no-boot-anim', '-no-metrics') + $Extra
 if ($HttpProxy) { $emuArgs += '-http-proxy', $HttpProxy }
 if ($DnsServer) { $emuArgs += '-dns-server', $DnsServer }
+if ($NoWifi) { $emuArgs += '-feature', '-VirtioWifi' }
 if ($NoWindow) { $emuArgs += '-no-window' }
 Write-Host "Starting $Emulator $($emuArgs -join ' ')"
 Write-Host "Log: $log"

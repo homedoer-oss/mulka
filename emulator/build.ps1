@@ -27,7 +27,7 @@ if (-not (Test-Path (Join-Path $qemu 'android\rebuild.cmd'))) { throw "No source
 
 # Mulka patches on top of the pinned upstream tree: patches\<dir>\*.patch, applied in name order.
 # Idempotent: a patch that already applies in reverse is treated as applied.
-$patchTargets = @{ 'external-qemu' = 'external\qemu' }
+$patchTargets = [ordered]@{ 'external-qemu' = 'external\qemu'; 'external-libslirp' = 'external\libslirp' }
 foreach ($dir in $patchTargets.Keys) {
     $projectPath = Join-Path $Root $patchTargets[$dir]
     $patches = Get-ChildItem (Join-Path $PSScriptRoot "patches\$dir") -Filter '*.patch' -ErrorAction SilentlyContinue | Sort-Object Name
@@ -55,7 +55,8 @@ try {
     # stderr is merged inside cmd.exe: in Windows PowerShell 5.1 a native stderr line seen by
     # PowerShell becomes a NativeCommandError, which with ErrorActionPreference=Stop kills this
     # script on the first CMake warning while the build keeps running orphaned and unlogged.
-    $taskArgs = @()
+    # ZipIntegrationTests packages upstream e2e tests via gradle + Android SDK; we do not ship them.
+    $taskArgs = @('--task-disable', 'ZipIntegrationTests')
     if (-not $Clean) { $taskArgs += '--task-disable', 'Clean' }
     if ($SkipTests) { $taskArgs += '--task-disable', 'CTest' }
     $cmdLine = (@('android\rebuild.cmd', '--config', $Config) + $taskArgs + $Extra) -join ' '

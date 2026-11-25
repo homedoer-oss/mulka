@@ -74,3 +74,24 @@ PoC-запуск: `.\run-poc.ps1` створює AVD у `C:\mulka-poc\avd` дл�
 2. **Шлюз має відмовляти в CONNECT на loopback/приватні адреси:** гість сам спробував `CONNECT 127.0.1.1:853` і `10.0.2.3:853` (Android Private DNS у режимі opportunistic) — без фільтра проксі відкриває гостю сервіси хоста.
 3. **IPv6:** гість отримує AAAA і спершу пробує `CONNECT [v6]:443` (320 відмов `WSAENETUNREACH` на хості без IPv6), потім іде на IPv4. Шлюз має швидко відмовляти або фільтрувати AAAA за політикою вихідного вузла.
 4. Порт 53 на `0.0.0.0` займає служба Windows SharedAccess (ICS), але bind на `127.0.1.1:53` працює без прав адміністратора — схема ADR-0004 підтверджена.
+
+### Патч slirp: fail-closed egress (2026-11-25)
+
+Коли задано `-http-proxy`, slirp більше не відкриває прямих з'єднань з адреси хоста: UDP і TCP, який проксі не взяв, дозволені лише на loopback хоста (10.0.2.2, loopback `-dns-server`) і на DNS-сервер гостя (10.0.2.3+, порт 53); ICMP echo назовні відкидається. UDP отримує ICMP unreachable — QUIC одразу падає на TCP; відхилений TCP — RST.
+
+- `patches/external-qemu/0002-slirp-fail-closed-egress-with-proxy.patch` — `external/qemu/slirp` (мережа `eth0`, вбудована в `qemu-system-*`).
+- `patches/external-libslirp/0001-fail-closed-egress-with-proxy.patch` — `external/libslirp`, та сама логіка. **Зараз не діє:** libslirp використовує лише netsim, а `netsimd.exe` береться готовим з `prebuilts/android-emulator-build/common/netsim` (`-- Using prebuilt netsim binaries`). Патч лишається на випадок збірки netsim з вихідників.
+
+**Wi-Fi.** В образі API 34 типовий маршрут іде через `wlan0` (virtio-wifi), а його трафік обробляє окремий процес `netsimd.exe` зі своїм slirp і своїм HTTP-проксі — TCP і DNS там ідуть через шлюз, але UDP виходить напряму, і наш патч на це не впливає. Тому інстанси Mulka запускаються з `-feature -VirtioWifi` (`run-poc.ps1 -NoWifi`): гість бачить лише `eth0` (мобільна мережа, VALIDATED), увесь трафік проходить через пропатчений slirp. Відкрите питання — зібрати netsim з вихідників або лишити гостя без Wi-Fi.
+
+`.\leak-test.ps1` (типово без Wi-Fi) — автоматична перевірка, код виходу = кількість провалів:
+
+| Перевірка | Wi-Fi через netsim (`-WithWifi`), з патчем чи без | З патчем, лише `eth0` |
+| --- | --- | --- |
+| TCP через шлюз (CONNECT) | PASS | PASS |
+| UDP не виходить напряму | **FAIL** | PASS |
+| ICMP не виходить напряму | **FAIL** | PASS |
+| DNS через шлюз | PASS | PASS |
+| HTTP через шлюз | PASS | PASS |
+
+Контроль: той самий `eth0` без `-http-proxy` — UDP від гостя доходить до сокета на LAN-адресі хоста, тобто блокує саме патч. ICMP через вбудований slirp на Windows не пересилається взагалі (сокет `IPPROTO_ICMP` недоступний), назовні його пропускав лише netsim.
