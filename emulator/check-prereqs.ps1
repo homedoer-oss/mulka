@@ -55,7 +55,7 @@ if (Test-Path $vswhere) {
 } else {
     Write-Check "vswhere.exe" $false "install VS 2022 Build Tools"
 }
-Write-Check "Windows ADK (dismapi, only for emulator-check)" (Test-Path "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit") "install Windows ADK if the build asks for dismapi.h" -Optional
+Write-Check "Windows ADK Deployment Tools (dismapi.h for emulator-check)" (Test-Path "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\SDKs\DismApi\Include\dismapi.h") "run setup-machine.ps1 as admin"
 
 Write-Host "== Tools on PATH"
 foreach ($t in 'git', 'python', 'curl.exe', 'java') {

@@ -3,7 +3,9 @@
   Build the emulator from the tree fetched by fetch.ps1 and keep a log in emulator\out\.
 
 .EXAMPLE
-  .\build.ps1                          # release build, upstream defaults
+  .\build.ps1                          # incremental release build + unit tests
+  .\build.ps1 -SkipTests               # incremental build, no ctest
+  .\build.ps1 -Clean                   # wipe objs\ first (upstream default)
   .\build.ps1 -Config debug
   .\build.ps1 -Extra '--task','Compile' # incremental: compile only
 #>
@@ -11,6 +13,11 @@
 param(
     [string]$Root = 'C:\e',
     [ValidateSet('release', 'debug')][string]$Config = 'release',
+    # Upstream starts with a Clean task that deletes objs\ (a full ~1 h rebuild every time).
+    # By default we skip it and build incrementally; -Clean restores upstream behaviour.
+    [switch]$Clean,
+    # Skip the ctest run (~10 min). Known environment-dependent failures: see README.
+    [switch]$SkipTests,
     [string[]]$Extra = @()
 )
 
@@ -45,9 +52,17 @@ $started = Get-Date
 Push-Location $qemu
 try {
     # rebuild.cmd = python android\build\python\cmake.py --ccache auto <args>
-    $cmdArgs = @('/c', 'android\rebuild.cmd', '--config', $Config) + $Extra
-    & cmd.exe @cmdArgs 2>&1 | Tee-Object -FilePath $log
+    # stderr is merged inside cmd.exe: in Windows PowerShell 5.1 a native stderr line seen by
+    # PowerShell becomes a NativeCommandError, which with ErrorActionPreference=Stop kills this
+    # script on the first CMake warning while the build keeps running orphaned and unlogged.
+    $taskArgs = @()
+    if (-not $Clean) { $taskArgs += '--task-disable', 'Clean' }
+    if ($SkipTests) { $taskArgs += '--task-disable', 'CTest' }
+    $cmdLine = (@('android\rebuild.cmd', '--config', $Config) + $taskArgs + $Extra) -join ' '
+    $ErrorActionPreference = 'Continue'
+    & cmd.exe /d /c "$cmdLine 2>&1" | Tee-Object -FilePath $log
     $code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
 } finally {
     Pop-Location
 }

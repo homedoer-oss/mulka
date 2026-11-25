@@ -9,7 +9,7 @@
 | Крок | Команда | Права | Що робить |
 | --- | --- | --- | --- |
 | 1 | `.\check-prereqs.ps1` | звичайні | Лише перевіряє середовище, нічого не змінює |
-| 2 | `.\setup-machine.ps1` | **адміністратор**, один раз | Developer Mode, long paths, компоненти VS (ATL, ATL/MFC, CMake), Windows Hypervisor Platform |
+| 2 | `.\setup-machine.ps1` | **адміністратор**, один раз | Developer Mode, long paths, компоненти VS (ATL, ATL/MFC, CMake), Windows ADK Deployment Tools, Windows Hypervisor Platform |
 | 3 | `.\fetch.ps1` | звичайні | Ставить `repo` у `%LOCALAPPDATA%\mulka-tools`, синхронізує `emu-main-dev` у `C:\e`, пише `manifest.pinned.xml` |
 | 4 | `.\build.ps1` | звичайні | `android\rebuild.cmd`, лог у `emulator\out\` |
 
@@ -39,14 +39,18 @@
 ## Відкриті питання
 
 - ~~Чи знаходить збірка upstream VS Build Tools~~ — ні: `aemu/process/environment.py` викликає `vswhere` без `-products *` і вимагає workload `NativeDesktop`, якого в Build Tools немає. Виправлено патчем `patches/external-qemu/0001-accept-vs-build-tools.patch` (приймає також `VCTools`); `build.ps1` накладає патчі з `patches\` перед збіркою.
-- Чи потрібен Windows ADK (`dismapi.h` для `emulator-check`) у збірці за замовчуванням.
-- Тривалість збірки — заміряти і записати сюди.
+- ~~Чи потрібен Windows ADK~~ — так: CMake без `dismapi` лише попереджає, але `emulator-check` (на ньому тримається `emulator -accel-check`) не компілюється без `dismapi.h`. `setup-machine.ps1` ставить ADK Deployment Tools через winget.
+- ~~Тривалість збірки~~ — повна збірка з тестами ~1 год 05 хв (11 602 кроки ninja, 923 тести). `build.ps1` за замовчуванням не видаляє `objs\` (upstream-задача `Clean`), тож повторні збірки інкрементальні; `-Clean` — повна, `-SkipTests` — без ctest.
+- Тести upstream, що падають на цій машині (2026-11-25), на збірку не впливають:
+  - `aemu-gl-init_unittests` (`EmuglConfig.initWithEmuglConfigInit*`) — чекає апаратний GPU-рендерер, отримує `swiftshader`;
+  - `tink_test_internal_rsa_util_test` (`RsaUtilTest.FailsOnLargeE`) — поведінка BoringSSL, не наш код;
+  - `android-emu-base_unittests` — нестабільний, проходить при повторі.
 
 ## Завдання фази 0
 
 - [x] Скрипти перевірки, налаштування, отримання і збірки
 - [x] Налаштувати машину (`setup-machine.ps1`)
 - [x] Перша синхронізація і `manifest.pinned.xml` (`external/qemu` @ `538bcdea`)
-- [ ] Успішна збірка `emulator.exe`
+- [x] Успішна збірка `emulator.exe` (37.3.10.0, `objs\distribution\emulator\`, 136 МБ)
 - [ ] Запуск образу API 34 через WHPX
 - [ ] Перевірити `-http-proxy` і `-dns-server` з локальним шлюзом

@@ -6,6 +6,7 @@
     - Developer Mode on (lets git create symlinks without admin)
     - Win32 long paths on
     - Adds VC ATL, ATL/MFC and CMake components to the installed VS 2022 / Build Tools 2022
+    - Installs the Windows ADK Deployment Tools (dismapi, needed by emulator-check) via winget
     - Enables the 'Windows Hypervisor Platform' feature (WHPX) if it is off
   Does NOT change git config, TEMP or Defender settings, and installs nothing from third-party hosts.
   A reboot may be required afterwards (the script says so).
@@ -13,6 +14,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [switch]$SkipVisualStudio,
+    [switch]$SkipAdk,
     [switch]$SkipHypervisor
 )
 
@@ -68,6 +70,22 @@ if (-not $SkipVisualStudio) {
         # 3010 = success, reboot required
         if ($p.ExitCode -eq 3010) { $rebootNeeded = $true }
         elseif ($p.ExitCode -ne 0) { throw "VS installer exited with code $($p.ExitCode)" }
+    }
+}
+
+if (-not $SkipAdk) {
+    # emulator-check (also behind `emulator -accel-check`) includes dismapi.h, which ships only with
+    # the ADK Deployment Tools; without it the build fails at main-emulator-check.cpp.
+    Write-Host "== Windows ADK Deployment Tools (dismapi)"
+    $dismapi = "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\SDKs\DismApi\Include\dismapi.h"
+    if (Test-Path $dismapi) {
+        Write-Host "  already installed"
+    } elseif ($PSCmdlet.ShouldProcess('Microsoft.WindowsADK', 'install Deployment Tools via winget')) {
+        Write-Host "  installing (Deployment Tools only, from Microsoft via winget)"
+        & winget install --id Microsoft.WindowsADK --exact --silent --accept-package-agreements --accept-source-agreements `
+            --override '/features OptionId.DeploymentTools /quiet /norestart /ceip off'
+        if (-not (Test-Path $dismapi)) { throw "ADK install finished but $dismapi is missing (winget exit code $LASTEXITCODE)" }
+        Write-Host "  installed"
     }
 }
 
