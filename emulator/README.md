@@ -1,12 +1,52 @@
 # emulator — форк Android Emulator
 
-Збірка форку AOSP `platform/external/qemu` під Windows (clang-cl). Рішення — [ADR-0001](../docs/adr/0001-base-on-android-emulator-fork.md).
+Збірка Android Emulator (AOSP `platform/external/qemu`) з вихідників під Windows. Рішення — [ADR-0001](../docs/adr/0001-base-on-android-emulator-fork.md).
 
-Вихідний код upstream не зберігається в цьому репозиторії: його викачують скрипти в `emulator/src/` (у `.gitignore`), коміт upstream фіксується в цьому каталозі.
+Вихідники upstream у репозиторії не зберігаються: `fetch.ps1` викачує їх через `repo` у `C:\e`, а точні коміти фіксуються у `manifest.pinned.xml` (комітиться сюди). Власний форк `external/qemu` з'явиться з першою нашою зміною; до того збираємо upstream як є.
 
-Завдання фази 0:
+## Порядок дій
 
-- [ ] Зафіксувати коміт upstream і задокументувати кроки отримання коду
-- [ ] Відтворювана збірка під Windows (скрипт + перелік залежностей)
+| Крок | Команда | Права | Що робить |
+| --- | --- | --- | --- |
+| 1 | `.\check-prereqs.ps1` | звичайні | Лише перевіряє середовище, нічого не змінює |
+| 2 | `.\setup-machine.ps1` | **адміністратор**, один раз | Developer Mode, long paths, компоненти VS (ATL, ATL/MFC, CMake), Windows Hypervisor Platform |
+| 3 | `.\fetch.ps1` | звичайні | Ставить `repo` у `%LOCALAPPDATA%\mulka-tools`, синхронізує `emu-main-dev` у `C:\e`, пише `manifest.pinned.xml` |
+| 4 | `.\build.ps1` | звичайні | `android\rebuild.cmd`, лог у `emulator\out\` |
+
+Відтворити зафіксоване дерево: `.\fetch.ps1 -Pinned`. Синхронізацію можна почати ще до встановлення VS: `.\fetch.ps1 -SkipPrereqCheck`.
+
+Допоміжні файли:
+
+- `local_manifest.xml` — проєкти, які збірці під Windows не потрібні; `fetch.ps1` копіює його в `.repo\local_manifests\`. Зараз там лише `prebuilts/android-emulator-build/system-images`: ~40 ГБ тестових образів Google APIs, на які збірка не посилається і які не можна розповсюджувати.
+- `complete-pin.py` — дописує в `manifest.pinned.xml` проєкти, які `repo manifest -r` пропускає (група `notdefault`: prebuilts clang, cmake, ninja, python, bazel для Windows).
+
+## Виміряно (2026-11-25, i5-8250U, 12 ГБ RAM)
+
+| Що | Значення |
+| --- | --- |
+| Проєктів у дереві (Windows, без `system-images`) | 61 |
+| Дерево на диску, `--depth=1` | ~46 ГБ (разом із `system-images` було ~87 ГБ) |
+| Найбільші проєкти (git-об'єкти) | `system-images` 21 ГБ (виключено), `common` 3,3 ГБ, `qt` 3,1 ГБ, `clang/host/windows-x86` 1,5 ГБ |
+| `repo sync -j4` | процес зупинено через нестачу RAM, але всі проєкти встигли розгорнутися; на 12 ГБ RAM краще `-Jobs 2` |
+
+Скрипти не змінюють глобальний git-конфіг (налаштування `core.symlinks`, `core.longpaths`, `core.autocrlf` передаються лише процесу `repo` через `GIT_CONFIG_*`), TEMP і виключення Defender, і нічого не завантажують зі сторонніх хостів, крім офіційного `repo` від Google.
+
+## Джерела
+
+- [WINDOWS-DEV.md, гілка emu-main-dev](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-main-dev/android/docs/WINDOWS-DEV.md) — вимоги і команди збірки
+- [android/rebuild.cmd](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-main-dev/android/rebuild.cmd) — викликає `python android\build\python\cmake.py --ccache auto`
+
+## Відкриті питання
+
+- Чи знаходить збірка upstream VS **Build Tools** (а не повну VS): у вихідниках `rebuild.cmd` і `cmake.py` виклику `vswhere` немає, він глибше. Перевіримо на першій збірці.
+- Чи потрібен Windows ADK (`dismapi.h` для `emulator-check`) у збірці за замовчуванням.
+- Тривалість збірки — заміряти і записати сюди.
+
+## Завдання фази 0
+
+- [x] Скрипти перевірки, налаштування, отримання і збірки
+- [x] Налаштувати машину (`setup-machine.ps1`)
+- [x] Перша синхронізація і `manifest.pinned.xml` (`external/qemu` @ `538bcdea`)
+- [ ] Успішна збірка `emulator.exe`
 - [ ] Запуск образу API 34 через WHPX
 - [ ] Перевірити `-http-proxy` і `-dns-server` з локальним шлюзом

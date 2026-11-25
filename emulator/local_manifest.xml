@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mulka: projects the Windows build does not need. Copied into .repo/local_manifests by fetch.ps1. -->
+<manifest>
+  <!-- ~40 GB of Google APIs test images and a test SDK (README.TXT: "to be used for testing").
+       Not referenced by the build; not redistributable (Android SDK license). -->
+  <remove-project name="platform/prebuilts/android-emulator-build/system-images" />
+</manifest>
