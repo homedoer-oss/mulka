@@ -4,15 +4,21 @@ host loopback endpoints of instance N (ADR-0004). Not the real Net Gateway (that
   HTTP proxy  127.0.0.1:(18080+N)  CONNECT tunnels + absolute-URI plain HTTP, logs every target
   DNS         127.0.1.(N+1):53     UDP forwarder to --upstream, logs every query name
 
-usage: python -I poc-gateway.py [--instance N] [--upstream 1.1.1.1]
+  --upstream-proxy http://[user:pass@]host:port  chains every TCP connection through that HTTP proxy
+                                                (CONNECT), so the guest's egress IP is the proxy's
+
+usage: python -I poc-gateway.py [--instance N] [--upstream 1.1.1.1] [--upstream-proxy URL]
 """
 import argparse
+import base64
 import datetime
 import select
 import socket
 import struct
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+
+UPSTREAM_PROXY = None  # (host, port, Proxy-Authorization value or None)
 
 
 def log(kind, msg):
@@ -51,6 +57,25 @@ def read_head(conn):
     return head.decode("latin-1"), rest
 
 
+def open_upstream(host, port):
+    """TCP connection to host:port - directly, or as a CONNECT tunnel through UPSTREAM_PROXY."""
+    if not UPSTREAM_PROXY:
+        return socket.create_connection((host, port), timeout=15)
+    phost, pport, auth = UPSTREAM_PROXY
+    up = socket.create_connection((phost, pport), timeout=15)
+    target = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+    req = f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n"
+    if auth:
+        req += f"Proxy-Authorization: {auth}\r\n"
+    up.sendall((req + "\r\n").encode("latin-1"))
+    head, rest = read_head(up)
+    status = head.split("\r\n", 1)[0] if head else "no response"
+    if head is None or status.split(" ")[1:2] != ["200"] or rest:
+        up.close()
+        raise OSError(f"upstream proxy refused {target}: {status}")
+    return up
+
+
 def handle_http(conn, peer):
     try:
         head, rest = read_head(conn)
@@ -62,7 +87,7 @@ def handle_http(conn, peer):
         if method == "CONNECT":
             host, port = target.rsplit(":", 1)
             log("http", f"CONNECT {host}:{port} from {peer[0]}:{peer[1]}")
-            up = socket.create_connection((host, int(port)), timeout=15)
+            up = open_upstream(host.strip("[]"), int(port))
             conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
             if rest:
                 up.sendall(rest)
@@ -74,7 +99,7 @@ def handle_http(conn, peer):
             fwd = [f"{method} {path} {version}"] + [
                 l for l in lines[1:] if not l.lower().startswith(("proxy-connection:", "proxy-authorization:"))
             ]
-            up = socket.create_connection((host, port), timeout=15)
+            up = open_upstream(host, port)
             up.sendall(("\r\n".join(fwd) + "\r\n\r\n").encode("latin-1") + rest)
         up.settimeout(None)
         conn.settimeout(None)
@@ -131,7 +156,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--instance", type=int, default=0)
     ap.add_argument("--upstream", default="1.1.1.1")
+    ap.add_argument("--upstream-proxy", help="http://[user:pass@]host:port")
     a = ap.parse_args()
+    global UPSTREAM_PROXY
+    if a.upstream_proxy:
+        u = urlsplit(a.upstream_proxy)
+        if u.scheme != "http" or not u.hostname or not u.port:
+            ap.error("--upstream-proxy must be http://[user:pass@]host:port")
+        auth = None
+        if u.username is not None:
+            cred = f"{unquote(u.username)}:{unquote(u.password or '')}".encode()
+            auth = "Basic " + base64.b64encode(cred).decode("ascii")
+        UPSTREAM_PROXY = (u.hostname, u.port, auth)
+        log("http", f"upstream proxy {u.hostname}:{u.port}" + (" with auth" if auth else ""))
     threading.Thread(target=serve_dns, args=((f"127.0.1.{a.instance + 1}", 53), a.upstream), daemon=True).start()
     serve_http(("127.0.0.1", 18080 + a.instance))
 
