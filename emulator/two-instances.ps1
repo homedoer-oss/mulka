@@ -25,7 +25,9 @@ param(
     [string]$Proxy1,
     [int]$MemoryMb = 1536,
     [int]$NetTimeoutSec = 240,
-    [switch]$KeepRunning
+    [switch]$KeepRunning,
+    # System image tag under sdk\system-images\android-34\ (aosp = our build, images\install-image.ps1)
+    [string]$Tag = 'google_apis'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,7 +41,7 @@ $inst = foreach ($n in 0, 1) {
     $gwArgs = @('-I', '-u', (Join-Path $PSScriptRoot 'poc-gateway.py'), '--instance', $n)
     if ($proxies[$n]) { $gwArgs += '--upstream-proxy', $proxies[$n] }
     [pscustomobject]@{
-        N = $n; Name = "poc34-$n"; Port = 5554 + 2 * $n; Serial = "emulator-$(5554 + 2 * $n)"
+        N = $n; Name = $(if ($Tag -eq 'google_apis') { "poc34-$n" } else { "poc34-$Tag-$n" }); Port = 5554 + 2 * $n; Serial = "emulator-$(5554 + 2 * $n)"
         Proxy = $proxies[$n]; GwLog = $gwLog
         Gw = Start-Process python -ArgumentList $gwArgs -RedirectStandardOutput $gwLog -RedirectStandardError "$gwLog.err" -WindowStyle Hidden -PassThru
         Expected = $null; Seen = $null
@@ -57,7 +59,7 @@ foreach ($i in $inst) {
 $results = [ordered]@{}
 try {
     foreach ($i in $inst) {
-        & (Join-Path $PSScriptRoot 'run-poc.ps1') -PocRoot $PocRoot -Name $i.Name -Port $i.Port -MemoryMb $MemoryMb `
+        & (Join-Path $PSScriptRoot 'run-poc.ps1') -PocRoot $PocRoot -Tag $Tag -Name $i.Name -Port $i.Port -MemoryMb $MemoryMb `
             -HttpProxy "http://127.0.0.1:$(18080 + $i.N)" -DnsServer "127.0.1.$($i.N + 1)" -NoWifi -NoWindow
     }
     $ErrorActionPreference = 'Continue'

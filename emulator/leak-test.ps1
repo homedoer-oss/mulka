@@ -17,6 +17,8 @@
 param(
     [string]$PocRoot = 'C:\mulka-poc',
     [switch]$KeepRunning,
+    # System image tag under sdk\system-images\android-34\ (aosp = our build, images\install-image.ps1)
+    [string]$Tag = 'google_apis',
     # Keep virtio-wifi on: Wi-Fi traffic then goes through the prebuilt netsimd.exe, which our slirp
     # patch does not cover (UDP leaks there). Default is the Mulka configuration: eth0 only.
     [switch]$WithWifi
@@ -57,7 +59,9 @@ Set-Content -Path $listenerFile -Value $listener -Encoding ascii
 
 $results = [ordered]@{}
 try {
-    & (Join-Path $PSScriptRoot 'run-poc.ps1') -PocRoot $PocRoot -HttpProxy 'http://127.0.0.1:18080' -DnsServer '127.0.1.1' -NoWindow -NoWifi:(-not $WithWifi)
+    # Separate AVD per image: userdata from one system image must not be reused with another.
+    $avdName = if ($Tag -eq 'google_apis') { 'poc34' } else { "poc34-$Tag" }
+    & (Join-Path $PSScriptRoot 'run-poc.ps1') -PocRoot $PocRoot -Tag $Tag -Name $avdName -HttpProxy 'http://127.0.0.1:18080' -DnsServer '127.0.1.1' -NoWindow -NoWifi:(-not $WithWifi)
     $ErrorActionPreference = 'Continue'
     # Guest networking comes up a little after sys.boot_completed: wait for Android's own
     # connectivity check to reach the gateway before probing.
